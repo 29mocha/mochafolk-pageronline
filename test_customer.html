@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Halaman Pelanggan</title>
+</head>
+<body>
+    <h1>Mendengarkan Update untuk Antrian Coffee Shop ID: 1</h1>
+    <p>Buka Developer Console (F12) untuk melihat pesan real-time.</p>
+    <div id="messages"></div>
+
+    <script>
+        const shopId = 1; // Ganti jika ID coffee shop Anda berbeda
+        
+        // --- INI BAGIAN YANG DIPERBAIKI ---
+        // Tulis alamat server secara manual untuk pengujian
+        const socket = new WebSocket(
+            `ws://127.0.0.1:8000/ws/queue/${shopId}/`
+        );
+        // --------------------------------
+
+        socket.onopen = function(e) {
+            console.log("Koneksi WebSocket berhasil dibuka!");
+        };
+
+        socket.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            console.log("Pesan diterima dari server:", data.message);
+            document.getElementById('messages').innerHTML += 
+                `<p><strong>Update:</strong> Antrian #${data.message.queue_number} sekarang ${data.message.status}!</p>`;
+        };
+
+        socket.onclose = function(e) {
+            console.error('Koneksi WebSocket ditutup.');
+        };
+    </script>
+</body>
+</html>
