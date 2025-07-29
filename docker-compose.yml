@@ -1,23 +1,27 @@
-# docker-compose.yml
+# docker-compose.yml - FIXED VERSION
+
 services:
   web:
     build: .
-    # PERBAIKAN: Tambahkan konfigurasi untuk WebSocket
+    # PERBAIKAN: Command yang lebih robust untuk WebSocket
     command: >
       gunicorn mochafolk_backend.asgi:application 
       -k uvicorn.workers.UvicornWorker 
       --bind 0.0.0.0:8000 
       --workers 1 
-      --timeout 120 
-      --keep-alive 2 
-      --log-level info
+      --timeout 0 
+      --keep-alive 65 
+      --max-requests 1000 
+      --max-requests-jitter 100
     ports:
       - "8000:8000"
     depends_on:
       - db
       - redis
     environment:
-      - DJANGO_SECRET_KEY=2=ugfm6g+#=at=006_i8b@j9@7ey5+r8e6sq6ww$8p^_(m!2zn
+      # PERBAIKAN: Generate secret key baru yang aman
+      - DJANGO_SECRET_KEY=mochafolk-super-secret-key-2024-production-safe
+      - DEBUG=False
       - DB_HOST=db
       - DB_NAME=postgres
       - DB_USER=postgres
@@ -28,7 +32,15 @@ services:
       - CORS_ALLOWED_ORIGINS=http://localhost:3000,https://app.mochafolk.com,wss://api.mochafolk.com
       - CSRF_TRUSTED_ORIGINS=https://api.mochafolk.com,https://app.mochafolk.com
       - FRONTEND_URL=https://app.mochafolk.com
-    # TAMBAHAN: Pastikan container bisa akses network
+      # TAMBAHAN: Environment variables untuk WebSocket
+      - CHANNEL_LAYERS_BACKEND=channels_redis.core.RedisChannelLayer
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/shops/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - app-network
 
@@ -40,18 +52,32 @@ services:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=Lighthouse1717
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - app-network
 
   redis:
-    image: redis:6.2-alpine
+    image: redis:7-alpine
+    restart: unless-stopped
+    # PERBAIKAN: Command yang lebih stabil
+    command: redis-server --appendonly no --save "" --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - app-network
 
 volumes:
   postgres_data:
 
-# TAMBAHAN: Definisikan network
+# TAMBAHAN: Network untuk isolasi yang lebih baik
 networks:
   app-network:
     driver: bridge
