@@ -165,10 +165,11 @@ class QueueListCreateView(generics.ListCreateAPIView):
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated(), IsShopMember()]
     
-    def create(self, request, *args, **kwargs):
+    def perform_create(self, serializer):
         shop_id = self.kwargs.get('shop_pk')
         shop = CoffeeShop.objects.get(pk=shop_id)
         
+        # Periksa batasan untuk paket BASIC
         if shop.plan == CoffeeShop.Plan.BASIC:
             today = timezone.localdate()
             todays_queues_count = Queue.objects.filter(
@@ -178,31 +179,26 @@ class QueueListCreateView(generics.ListCreateAPIView):
             
             if todays_queues_count >= 20:
                 raise ValidationError("Batas 20 antrian harian untuk paket Basic telah tercapai.")
-        
-        return super().create(request, *args, **kwargs)
 
-    def perform_create(self, serializer):
-        shop_id = self.kwargs['shop_pk']
-        shop = CoffeeShop.objects.get(pk=shop_id)
+        # Lanjutkan dengan logika pembuatan nomor dan penyimpanan
         today = timezone.localdate()
-        todays_queues_count = Queue.objects.filter(
-            coffee_shop_id=shop_id, 
-            created_at__date=today
-        ).count()
-        new_queue_number = todays_queues_count + 1
-        instance = serializer.save(
-            coffee_shop=shop, 
-            queue_number=new_queue_number
-        )
-        channel_layer = get_channel_layer()
-        group_name = f"queue_shop_{shop_id}"
-        async_to_sync(channel_layer.group_send)(
-            group_name,
-            {
-                "type": "queue.new",
-                "message": QueueSerializer(instance).data
-            }
-        )
+        new_queue_number = Queue.objects.filter(coffee_shop_id=shop_id, created_at__date=today).count() + 1
+        
+        instance = serializer.save(coffee_shop=shop, queue_number=new_queue_number)
+        
+        # Kirim notifikasi WebSocket
+        try:
+            channel_layer = get_channel_layer()
+            group_name = f"queue_shop_{shop_id}"
+            async_to_sync(channel_layer.group_send)(
+                group_name,
+                {
+                    "type": "queue.new",
+                    "message": QueueSerializer(instance).data
+                }
+            )
+        except Exception as e:
+            print(f"Peringatan: Gagal mengirim notifikasi WebSocket (antrian baru): {e}")
 
 class QueueDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = QueueSerializer
@@ -216,34 +212,50 @@ class QueueDetailView(generics.RetrieveUpdateDestroyAPIView):
         return [permissions.IsAuthenticated(), IsShopMember()]
     def perform_update(self, serializer):
         instance = serializer.save()
+        
         if instance.status == 'ready':
-            channel_layer = get_channel_layer()
-            group_name = f"queue_shop_{instance.coffee_shop.id}"
-            async_to_sync(channel_layer.group_send)(group_name, {
-                "type": "queue.update",
-                "message": { "id": instance.id, "queue_number": instance.queue_number, "status": instance.status }
-            })
-            subscriptions = PushSubscription.objects.filter(coffee_shop_id=instance.coffee_shop.id)
-            payload = json.dumps({
-                "title": f"Pesanan #{instance.queue_number} Siap!",
-                "body": f"Pesanan Anda di {instance.coffee_shop.name} sudah siap diambil.",
-                "url": f"/queue/{instance.coffee_shop.id}" # <-- KUNCI PERBAIKAN
-            })
-            for sub in subscriptions:
-                try:
-                    # --- KUNCI PERBAIKAN: Rakit kembali data langganan ---
-                    subscription_info_dict = {
-                        "endpoint": sub.endpoint,
-                        "keys": { "p256dh": sub.p256dh, "auth": sub.auth }
+            # --- KUNCI PERBAIKAN: Tambahkan try-except ---
+            try:
+                # Kirim notifikasi WebSocket
+                channel_layer = get_channel_layer()
+                group_name = f"queue_shop_{instance.coffee_shop.id}"
+                async_to_sync(channel_layer.group_send)(
+                    group_name,
+                    {
+                        "type": "queue.update",
+                        "message": { "id": instance.id, "queue_number": instance.queue_number, "status": instance.status }
                     }
-                    webpush(
-                        subscription_info=subscription_info_dict,
-                        data=payload,
-                        vapid_private_key=settings.VAPID_PRIVATE_KEY,
-                        vapid_claims=settings.WEBPUSH_CLAIMS
-                    )
-                except Exception as e:
-                    print(f"Gagal mengirim push notification ke {sub.endpoint}: {e}")
+                )
+
+                # Kirim Push Notification
+                subscriptions = PushSubscription.objects.filter(coffee_shop_id=instance.coffee_shop.id)
+                payload = json.dumps({
+                    "title": f"Pesanan #{instance.queue_number} Siap!",
+                    "body": f"Pesanan Anda di {instance.coffee_shop.name} sudah siap diambil.",
+                    "url": f"/queue/{instance.coffee_shop.id}"
+                })
+                for sub in subscriptions:
+                    try:
+                        subscription_info_dict = {
+                            "endpoint": sub.endpoint,
+                            "keys": { "p256dh": sub.p256dh, "auth": sub.auth }
+                        }
+                        webpush(
+                            subscription_info=subscription_info_dict,
+                            data=payload,
+                            vapid_private_key=settings.VAPID_PRIVATE_KEY,
+                            vapid_claims=settings.WEBPUSH_CLAIMS
+                        )
+                    except Exception as e:
+                        # Jika langganan spesifik gagal, hapus dari DB
+                        if 'Gone' in str(e):
+                            print(f"Langganan {sub.endpoint} sudah tidak valid. Menghapus.")
+                            sub.delete()
+                        else:
+                            print(f"Gagal mengirim push notification ke {sub.endpoint}: {e}")
+
+            except Exception as e:
+                print(f"Peringatan: Gagal mengirim notifikasi (update status): {e}")
 
 class ResetQueueView(APIView):
     permission_classes = [IsAuthenticated, IsShopMember]
