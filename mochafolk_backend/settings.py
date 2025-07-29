@@ -7,18 +7,29 @@ from datetime import timedelta
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Quick-start development settings - unsuitable for production
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-w(#ua&&ua0o-7w*6e_vkj74spsyvu$*=4my%g-@7j@#j@kmw6#')
-# Percayai header X-Forwarded-Proto dari Nginx
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-# SECURITY WARNING: don't run with debug turned on in production!
+# --- CORE SETTINGS ---
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'a-default-secret-key-for-local-dev')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+# --- HOST & SECURITY SETTINGS ---
+ALLOWED_HOSTS_STRING = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1')
+ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_STRING.split(',')]
+
+# Trust the X-Forwarded-Proto header from our Nginx proxy
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# --- CORS (Cross-Origin Resource Sharing) SETTINGS ---
+# This is the most important part for fixing the error.
+CORS_ALLOWED_ORIGINS_STRING = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000')
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS_STRING.split(',')]
+CORS_ALLOW_CREDENTIALS = True # Allows cookies/tokens to be sent cross-domain
+
+# --- CSRF SETTINGS ---
+CSRF_TRUSTED_ORIGINS_STRING = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:8000')
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS_STRING.split(',')]
 
 
-# Application definition
+# --- APPLICATION DEFINITION ---
 INSTALLED_APPS = [
     'daphne',
     'channels',
@@ -28,22 +39,20 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
-    # Aplikasi pihak ketiga
+    # Third-party apps
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
-
-    # Aplikasi lokal kita
+    # Local apps
     'shops.apps.ShopsConfig',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware', # Whitenoise
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
+    'corsheaders.middleware.CorsMiddleware', # Must be before CommonMiddleware
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -52,6 +61,8 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'mochafolk_backend.urls'
+WSGI_APPLICATION = 'mochafolk_backend.wsgi.application'
+ASGI_APPLICATION = 'mochafolk_backend.asgi.application'
 
 TEMPLATES = [
     {
@@ -68,24 +79,19 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'mochafolk_backend.wsgi.application'
-ASGI_APPLICATION = 'mochafolk_backend.asgi.application'
-
-
-# Database
+# --- DATABASE ---
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.getenv('DB_NAME', 'postgres'),
         'USER': os.getenv('DB_USER', 'postgres'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'HOST': os.getenv('DB_HOST', 'db'), # Use the service name from docker-compose
         'PORT': os.getenv('DB_PORT', '5432'),
         'PASSWORD': os.getenv('DB_PASSWORD', 'your_super_secret_password'),
     }
 }
 
-
-# Password validation
+# --- PASSWORD VALIDATION ---
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -93,47 +99,31 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-
-# Internationalization
+# --- INTERNATIONALIZATION ---
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Jakarta'
 USE_I18N = True
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
+# --- STATIC & MEDIA FILES ---
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-# Media files (user-uploaded files)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Channels & Redis
+# --- CHANNELS & REDIS ---
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [(os.getenv('REDIS_HOST', '127.0.0.1'), os.getenv('REDIS_PORT', '6379'))],
+            "hosts": [(os.getenv('REDIS_HOST', '127.0.0.1'), int(os.getenv('REDIS_PORT', 6379)))],
         },
     },
 }
 
-# CORS
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
-
-# KUNCI PERBAIKAN: Baca CSRF_TRUSTED_ORIGINS dari environment variable
-CSRF_TRUSTED_ORIGINS_STRING = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:8000')
-CSRF_TRUSTED_ORIGINS = CSRF_TRUSTED_ORIGINS_STRING.split(',')
-
-
-# DRF & Simple JWT
+# --- DRF & SIMPLE JWT ---
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': ('rest_framework_simplejwt.authentication.JWTAuthentication',)
 }
@@ -145,15 +135,12 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
 }
 
-# Midtrans
+# --- THIRD-PARTY SERVICES ---
 MIDTRANS_SERVER_KEY = os.getenv('MIDTRANS_SERVER_KEY', 'your_midtrans_server_key')
 MIDTRANS_IS_PRODUCTION = os.getenv('MIDTRANS_IS_PRODUCTION', 'False') == 'True'
 
-# VAPID Keys
 VAPID_PUBLIC_KEY = os.getenv('VAPID_PUBLIC_KEY', 'your_vapid_public_key')
 VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY', 'your_vapid_private_key')
 WEBPUSH_CLAIMS = { "sub": f"mailto:{os.getenv('WEBPUSH_EMAIL', 'admin@example.com')}" }
 
-# Frontend URL
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
-
