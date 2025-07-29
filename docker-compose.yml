@@ -1,23 +1,41 @@
 services:
   web:
     build: .
-    # Perintah yang paling andal, akan berjalan setelah image dibangun
-    command: gunicorn --pythonpath /app mochafolk_backend.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
-    # BARIS DI BAWAH INI DIHAPUS UNTUK STABILITAS
-    # volumes:
-    #   - .:/app
+    command: gunicorn mochafolk_backend.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+    # Volume ini penting untuk development di komputer lokal
+    volumes:
+      - .:/app
     ports:
       - "8000:8000"
-    depends_on:
-      - db
-      - redis
     environment:
+      # Kunci Keamanan
+      - DJANGO_SECRET_KEY=2=ugfm6g+#=at=006_i8b@j9@7ey5+r8e6sq6ww$8p^_(m!2zn
+      - DEBUG=True
+
+      # Konfigurasi Database & Redis
       - DB_HOST=db
       - DB_NAME=postgres
       - DB_USER=postgres
       - DB_PASSWORD=Lighthouse1717
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      
+      # Konfigurasi Domain & Keamanan (untuk tes lokal & produksi)
+      - ALLOWED_HOSTS=localhost,127.0.0.1,api.mochafolk.com
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000,https://app.mochafolk.com
+      - CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://api.mochafolk.com,https://app.mochafolk.com
+
+      # Konfigurasi Midtrans & Notifikasi
+      - MIDTRANS_SERVER_KEY=Mid-server-qkjzSDQIaFiRUwlEk9XCBoSG
+      - MIDTRANS_IS_PRODUCTION=False
+      - VAPID_PUBLIC_KEY=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAESmIVpjr+FFUTajXcjN0SwCqI+CWBtFswrgVla8s/9TGMNPOjA74cErqDW/tRGqEIlZUHPkOI1qNt3pebSlXB4w==
+      - VAPID_PRIVATE_KEY=MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgJ7g598CguExS8oP9pR80Jx8Umc3AYNJTK//1l2kllo2hRANCAARKYhWmOv4UVRNqNdyM3RLAKoj4JYG0WzCuBWVryz/1MYw086MDvhwSuoNb+1EaoQiVlQc+Q4jWo23el5tKVcHj
+      - WEBPUSH_EMAIL=mochafolk@gmail.com
+      - FRONTEND_URL=http://localhost:3000
+
+    depends_on:
+      - db
+      - redis
 
   db:
     image: postgres:15-alpine
@@ -33,3 +51,4 @@ services:
 
 volumes:
   postgres_data:
+
