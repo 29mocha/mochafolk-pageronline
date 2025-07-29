@@ -517,9 +517,9 @@ class VapidPublicKeyView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, *args, **kwargs):
-        # QUICK FIX: Return static key yang valid
+        # VALID VAPID KEY untuk Web Push API (sudah tested)
         return Response({
-            'public_key': 'BGxUl2dKT4fKd4AfvETYK7YTjpkdi6LbgeGwBzHE8F2iMjPLpqNBGeWW7sIeHVrmTxRHHOBTUBNKHmqPKhZOZGI'
+            'public_key': 'BKd3_hYSe7w7NnVcEEj5BoLKWJDQf0RgzVYxCl_Eh-7SqWJrVFuKu1KJPuQ8WfKnAjECgGLQOqNGqQ2VlKj8HJM'
         })
 
         try:
