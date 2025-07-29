@@ -1,33 +1,28 @@
-# TAMBAHAN: Konfigurasi untuk WebSocket
+# mochafolk_backend/settings.py
+
 import os
 from pathlib import Path
 from datetime import timedelta
 
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# --- CORE SETTINGS ---
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'a-default-secret-key-for-local-dev')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-# PERBAIKAN: Tambahkan IP VPS Anda
+# --- HOST & SECURITY SETTINGS ---
 ALLOWED_HOSTS_STRING = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_STRING.split(',')]
 
-# PERBAIKAN: Konfigurasi untuk SSL/TLS
+# Trust the X-Forwarded-Proto header from our Nginx proxy
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-USE_TLS = True
 
-# PERBAIKAN: CORS untuk WebSocket
+# --- CORS (Cross-Origin Resource Sharing) SETTINGS ---
+# This is the most important part for fixing the error.
 CORS_ALLOWED_ORIGINS_STRING = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000')
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS_STRING.split(',')]
-CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Hanya untuk development
-
-# TAMBAHAN: Whitelist untuk WebSocket origins
-ALLOWED_WEBSOCKET_ORIGINS = [
-    'localhost:3000',
-    'app.mochafolk.com',
-    'api.mochafolk.com'
-]
+CORS_ALLOW_CREDENTIALS = True # Allows cookies/tokens to be sent cross-domain
 
 # --- CSRF SETTINGS ---
 CSRF_TRUSTED_ORIGINS_STRING = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:8000')
