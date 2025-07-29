@@ -517,8 +517,10 @@ class VapidPublicKeyView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, *args, **kwargs):
-        # Ambil kunci PEM dari settings
-        pem_public_key = settings.VAPID_PUBLIC_KEY
+        # QUICK FIX: Return static key yang valid
+        return Response({
+            'public_key': 'BGxUl2dKT4fKd4AfvETYK7YTjpkdi6LbgeGwBzHE8F2iMjPLpqNBGeWW7sIeHVrmTxRHHOBTUBNKHmqPKhZOZGI'
+        })
 
         try:
             # --- PERBAIKAN: Bersihkan kunci sebelum diproses ---
