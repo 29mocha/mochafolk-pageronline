@@ -1,0 +1,35 @@
+services:
+  web:
+    build: .
+    # Perintah yang paling andal, akan berjalan setelah image dibangun
+    command: gunicorn --pythonpath /app mochafolk_backend.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+    # BARIS DI BAWAH INI DIHAPUS UNTUK STABILITAS
+    # volumes:
+    #   - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DB_HOST=db
+      - DB_NAME=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=Lighthouse1717
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  db:
+    image: postgres:15-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=Lighthouse1717
+
+  redis:
+    image: redis:6.2-alpine
+
+volumes:
+  postgres_data:
