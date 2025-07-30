@@ -236,17 +236,19 @@ class QueueDetailView(generics.RetrieveUpdateDestroyAPIView):
                 "body": f"Pesanan Anda di {instance.coffee_shop.name} sudah siap diambil.",
                 "url": f"/queue/{instance.coffee_shop.id}"
             })
-
             for sub in subscriptions:
                 try:
-                    # --- KUNCI PERBAIKAN: Buat VAPID claims yang benar ---
-                    endpoint_url = urlparse(sub.subscription_data['endpoint'])
+                    # --- KUNCI PERBAIKAN: Rakit kembali data langganan ---
+                    subscription_info_dict = {
+                        "endpoint": sub.endpoint,
+                        "keys": { "p256dh": sub.p256dh, "auth": sub.auth }
+                    }
                     vapid_claims = {
                         "sub": settings.WEBPUSH_CLAIMS['sub'],
-                        "aud": f"{endpoint_url.scheme}://{endpoint_url.netloc}"
+                        "aud": f"{urlparse(sub.endpoint).scheme}://{urlparse(sub.endpoint).netloc}"
                     }
                     webpush(
-                        subscription_info=sub.subscription_data,
+                        subscription_info=subscription_info_dict,
                         data=payload,
                         vapid_private_key=settings.VAPID_PRIVATE_KEY,
                         vapid_claims=vapid_claims
@@ -269,19 +271,13 @@ class ResetQueueView(APIView):
 
 class RingPagerView(APIView):
     permission_classes = [IsAuthenticated, IsShopMember]
-
     def post(self, request, shop_pk=None, queue_pk=None):
         try:
             queue = Queue.objects.get(pk=queue_pk, coffee_shop_id=shop_pk)
-            # Kirim sinyal WebSocket (tidak berubah)
             channel_layer = get_channel_layer()
             group_name = f"queue_shop_{shop_pk}"
-            async_to_sync(channel_layer.group_send)(
-                group_name,
-                { "type": "pager.ring", "message": { "id": queue.id } }
-            )
+            async_to_sync(channel_layer.group_send)(group_name, { "type": "pager.ring", "message": { "id": queue.id } })
             
-            # Kirim Push Notification
             subscriptions = PushSubscription.objects.filter(coffee_shop_id=shop_pk)
             payload = json.dumps({
                 "title": f"Pager untuk Pesanan #{queue.queue_number}",
@@ -290,14 +286,17 @@ class RingPagerView(APIView):
             })
             for sub in subscriptions:
                 try:
-                    # --- KUNCI PERBAIKAN: Buat VAPID claims yang benar ---
-                    endpoint_url = urlparse(sub.subscription_data['endpoint'])
+                    # --- KUNCI PERBAIKAN: Rakit kembali data langganan ---
+                    subscription_info_dict = {
+                        "endpoint": sub.endpoint,
+                        "keys": { "p256dh": sub.p256dh, "auth": sub.auth }
+                    }
                     vapid_claims = {
                         "sub": settings.WEBPUSH_CLAIMS['sub'],
-                        "aud": f"{endpoint_url.scheme}://{endpoint_url.netloc}"
+                        "aud": f"{urlparse(sub.endpoint).scheme}://{urlparse(sub.endpoint).netloc}"
                     }
                     webpush(
-                        subscription_info=sub.subscription_data,
+                        subscription_info=subscription_info_dict,
                         data=payload,
                         vapid_private_key=settings.VAPID_PRIVATE_KEY,
                         vapid_claims=vapid_claims
@@ -308,8 +307,6 @@ class RingPagerView(APIView):
                     else:
                         print(f"Gagal mengirim push notification: {e}")
             return Response({"status": "pager signals sent"}, status=status.HTTP_200_OK)
-        except Queue.DoesNotExist:
-            return Response({"error": "Queue not found"}, status=status.HTTP_404_NOT_FOUND)
 
         except Queue.DoesNotExist:
             return Response({"error": "Queue not found"}, status=status.HTTP_404_NOT_FOUND)
