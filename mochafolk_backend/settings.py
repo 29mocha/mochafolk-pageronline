@@ -141,8 +141,8 @@ SIMPLE_JWT = {
 MIDTRANS_SERVER_KEY = os.getenv('MIDTRANS_SERVER_KEY', 'your_midtrans_server_key')
 MIDTRANS_IS_PRODUCTION = os.getenv('MIDTRANS_IS_PRODUCTION', 'False') == 'True'
 
-VAPID_PUBLIC_KEY = os.getenv('VAPID_PUBLIC_KEY', 'your_vapid_public_key')
-VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY', 'your_vapid_private_key')
-WEBPUSH_CLAIMS = { "sub": f"mailto:{os.getenv('WEBPUSH_EMAIL', 'admin@example.com')}" }
+VAPID_PUBLIC_KEY = os.getenv('VAPID_PUBLIC_KEY', 'BJOXk4RvAyYTQQGseNXTiJHady-i9lePv8vUtBQlakN1J72oAfUzFFkU-3KWVpZ3tIP2InyRIu_NNBZ2hdeGlBA')
+VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY', 'O_sWGnmyHzxWJz8OZHyeq3eJaEDilVsalvDwAUSJj9U')
+WEBPUSH_CLAIMS = { "sub": f"mailto:{os.getenv('WEBPUSH_EMAIL', 'mochafolk@gmail.com')}" }
 
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
