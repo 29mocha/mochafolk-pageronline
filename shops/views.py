@@ -316,7 +316,7 @@ class QRCodeView(APIView):
     def get(self, request, shop_pk=None):
         # URL frontend yang akan dibuka saat QR code di-scan
         # Nanti saat deploy, ganti 'http://localhost:3000' dengan domain Anda
-        frontend_url = f"http://localhost:3000/queue/{shop_pk}"
+        frontend_url = f"http://app.mochafolk.com/queue/{shop_pk}"
         
         # Buat gambar QR code di memori
         img = qrcode.make(frontend_url)
