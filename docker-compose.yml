@@ -1,53 +1,41 @@
-# docker-compose.yml - VERSI ANDA YANG SUDAH DIPERBAIKI
-
 services:
   web:
     build: .
-    # --- KUNCI PERBAIKAN: Tambahkan --pythonpath /app di sini ---
-    command: >
-      gunicorn --pythonpath /app mochafolk_backend.asgi:application 
-      -k uvicorn.workers.UvicornWorker 
-      --bind 0.0.0.0:8000 
-      --workers 1 
-      --timeout 0 
-      --keep-alive 65 
-      --max-requests 1000 
-      --max-requests-jitter 100
+    # Perintah paling andal untuk Gunicorn di produksi
+    command: gunicorn --pythonpath /app mochafolk_backend.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+    # Kita tidak menggunakan volume kode di produksi agar stabil
+    volumes:
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
     ports:
       - "8000:8000"
+    restart: unless-stopped
     depends_on:
       - db
       - redis
     environment:
-      # Pastikan semua environment variable ini ada dan benar
+      # --- Konfigurasi Keamanan & Domain ---
       - DJANGO_SECRET_KEY=2=ugfm6g+#=at=006_i8b@j9@7ey5+r8e6sq6ww$8p^_(m!2zn
       - DEBUG=False
+      - ALLOWED_HOSTS=api.mochafolk.com,localhost,127.0.0.1
+      - CORS_ALLOWED_ORIGINS=https://app.mochafolk.com,http://localhost:3000
+      - CSRF_TRUSTED_ORIGINS=https://api.mochafolk.com,https://app.mochafolk.com
+
+      # --- Konfigurasi Database & Redis ---
       - DB_HOST=db
       - DB_NAME=postgres
       - DB_USER=postgres
       - DB_PASSWORD=Lighthouse1717
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - ALLOWED_HOSTS=localhost,127.0.0.1,api.mochafolk.com
-      - CORS_ALLOWED_ORIGINS=http://localhost:3000,https://app.mochafolk.com
-      - CSRF_TRUSTED_ORIGINS=https://api.mochafolk.com,https://app.mochafolk.com
+
+      # --- Konfigurasi Layanan Pihak Ketiga ---
       - FRONTEND_URL=https://app.mochafolk.com
-      # --- KUNCI VAPID BARU ANDA ---
+      - MIDTRANS_SERVER_KEY=Mid-server-qkjzSDQIaFiRUwlEk9XCBoSG # Ganti dengan kunci Midtrans Produksi Anda nanti
+      - MIDTRANS_IS_PRODUCTION=False # Ganti menjadi True saat live
       - VAPID_PUBLIC_KEY=BJOXk4RvAyYTQQGseNXTiJHady-i9lePv8vUtBQlakN1J72oAfUzFFkU-3KWVpZ3tIP2InyRIu_NNBZ2hdeGlBA
       - VAPID_PRIVATE_KEY=O_sWGnmyHzxWJz8OZHyeq3eJaEDilVsalvDwAUSJj9U
-      # -----------------------------
       - WEBPUSH_EMAIL=mochafolk@gmail.com
-      - MIDTRANS_SERVER_KEY=Mid-server-qkjzSDQIaFiRUwlEk9XCBoSG # Ganti dengan kunci Midtrans Anda
-      - MIDTRANS_IS_PRODUCTION=False
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/shops/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    networks:
-      - app-network
 
   db:
     image: postgres:15-alpine
@@ -58,29 +46,10 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=Lighthouse1717
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - app-network
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --appendonly no --save "" --maxmemory 256mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    networks:
-      - app-network
 
 volumes:
   postgres_data:
-
-networks:
-  app-network:
-    driver: bridge
