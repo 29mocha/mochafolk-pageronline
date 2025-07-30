@@ -37,7 +37,8 @@ import uuid
 import qrcode
 import io
 import json
-from pywebpush import webpush # <-- Impor untuk webpush
+from pywebpush import webpush, WebPushException
+from urllib.parse import urlparse # <-- Impor baru yang penting
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from cryptography.hazmat.primitives import serialization
@@ -203,59 +204,58 @@ class QueueListCreateView(generics.ListCreateAPIView):
 class QueueDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = QueueSerializer
     lookup_url_kwarg = 'queue_pk'
+
     def get_queryset(self):
         shop_id = self.kwargs['shop_pk']
         return Queue.objects.filter(coffee_shop_id=shop_id)
+
     def get_permissions(self):
         if self.request.method == 'GET':
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated(), IsShopMember()]
+
     def perform_update(self, serializer):
         instance = serializer.save()
         
         if instance.status == 'ready':
-            # --- KUNCI PERBAIKAN: Tambahkan try-except ---
-            try:
-                # Kirim notifikasi WebSocket
-                channel_layer = get_channel_layer()
-                group_name = f"queue_shop_{instance.coffee_shop.id}"
-                async_to_sync(channel_layer.group_send)(
-                    group_name,
-                    {
-                        "type": "queue.update",
-                        "message": { "id": instance.id, "queue_number": instance.queue_number, "status": instance.status }
+            # Kirim notifikasi WebSocket (tidak berubah)
+            channel_layer = get_channel_layer()
+            group_name = f"queue_shop_{instance.coffee_shop.id}"
+            async_to_sync(channel_layer.group_send)(
+                group_name,
+                {
+                    "type": "queue.update",
+                    "message": { "id": instance.id, "queue_number": instance.queue_number, "status": instance.status }
+                }
+            )
+
+            # Kirim Push Notification
+            subscriptions = PushSubscription.objects.filter(coffee_shop_id=instance.coffee_shop.id)
+            payload = json.dumps({
+                "title": f"Pesanan #{instance.queue_number} Siap!",
+                "body": f"Pesanan Anda di {instance.coffee_shop.name} sudah siap diambil.",
+                "url": f"/queue/{instance.coffee_shop.id}"
+            })
+
+            for sub in subscriptions:
+                try:
+                    # --- KUNCI PERBAIKAN: Buat VAPID claims yang benar ---
+                    endpoint_url = urlparse(sub.subscription_data['endpoint'])
+                    vapid_claims = {
+                        "sub": settings.WEBPUSH_CLAIMS['sub'],
+                        "aud": f"{endpoint_url.scheme}://{endpoint_url.netloc}"
                     }
-                )
-
-                # Kirim Push Notification
-                subscriptions = PushSubscription.objects.filter(coffee_shop_id=instance.coffee_shop.id)
-                payload = json.dumps({
-                    "title": f"Pesanan #{instance.queue_number} Siap!",
-                    "body": f"Pesanan Anda di {instance.coffee_shop.name} sudah siap diambil.",
-                    "url": f"/queue/{instance.coffee_shop.id}"
-                })
-                for sub in subscriptions:
-                    try:
-                        subscription_info_dict = {
-                            "endpoint": sub.endpoint,
-                            "keys": { "p256dh": sub.p256dh, "auth": sub.auth }
-                        }
-                        webpush(
-                            subscription_info=subscription_info_dict,
-                            data=payload,
-                            vapid_private_key=settings.VAPID_PRIVATE_KEY,
-                            vapid_claims=settings.WEBPUSH_CLAIMS
-                        )
-                    except Exception as e:
-                        # Jika langganan spesifik gagal, hapus dari DB
-                        if 'Gone' in str(e):
-                            print(f"Langganan {sub.endpoint} sudah tidak valid. Menghapus.")
-                            sub.delete()
-                        else:
-                            print(f"Gagal mengirim push notification ke {sub.endpoint}: {e}")
-
-            except Exception as e:
-                print(f"Peringatan: Gagal mengirim notifikasi (update status): {e}")
+                    webpush(
+                        subscription_info=sub.subscription_data,
+                        data=payload,
+                        vapid_private_key=settings.VAPID_PRIVATE_KEY,
+                        vapid_claims=vapid_claims
+                    )
+                except WebPushException as e:
+                    if e.response and e.response.status_code == 410:
+                        sub.delete()
+                    else:
+                        print(f"Gagal mengirim push notification: {e}")
 
 class ResetQueueView(APIView):
     permission_classes = [IsAuthenticated, IsShopMember]
@@ -269,40 +269,47 @@ class ResetQueueView(APIView):
 
 class RingPagerView(APIView):
     permission_classes = [IsAuthenticated, IsShopMember]
+
     def post(self, request, shop_pk=None, queue_pk=None):
         try:
             queue = Queue.objects.get(pk=queue_pk, coffee_shop_id=shop_pk)
+            # Kirim sinyal WebSocket (tidak berubah)
             channel_layer = get_channel_layer()
             group_name = f"queue_shop_{shop_pk}"
-            async_to_sync(channel_layer.group_send)(group_name, { "type": "pager.ring", "message": { "id": queue.id } })
+            async_to_sync(channel_layer.group_send)(
+                group_name,
+                { "type": "pager.ring", "message": { "id": queue.id } }
+            )
             
+            # Kirim Push Notification
             subscriptions = PushSubscription.objects.filter(coffee_shop_id=shop_pk)
             payload = json.dumps({
                 "title": f"Pager untuk Pesanan #{queue.queue_number}",
                 "body": f"Silakan ambil pesanan Anda di {queue.coffee_shop.name} sekarang.",
-                "url": f"/queue/{queue.coffee_shop.id}" # <-- KUNCI PERBAIKAN
+                "url": f"/queue/{queue.coffee_shop.id}"
             })
             for sub in subscriptions:
                 try:
-                    subscription_info_dict = {
-                        "endpoint": sub.endpoint,
-                        "keys": { "p256dh": sub.p256dh, "auth": sub.auth }
+                    # --- KUNCI PERBAIKAN: Buat VAPID claims yang benar ---
+                    endpoint_url = urlparse(sub.subscription_data['endpoint'])
+                    vapid_claims = {
+                        "sub": settings.WEBPUSH_CLAIMS['sub'],
+                        "aud": f"{endpoint_url.scheme}://{endpoint_url.netloc}"
                     }
                     webpush(
-                        subscription_info=subscription_info_dict,
+                        subscription_info=sub.subscription_data,
                         data=payload,
                         vapid_private_key=settings.VAPID_PRIVATE_KEY,
-                        vapid_claims=settings.WEBPUSH_CLAIMS
+                        vapid_claims=vapid_claims
                     )
-                except Exception as e:
-                    # --- 3. HAPUS LANGGANAN YANG TIDAK VALID (ERROR 410) ---
-                    if '410 Gone' in str(e):
-                        print(f"Langganan {sub.endpoint} sudah tidak valid. Menghapus.")
+                except WebPushException as e:
+                    if e.response and e.response.status_code == 410:
                         sub.delete()
                     else:
-                        print(f"Gagal mengirim push notification ke {sub.endpoint}: {e}")
-
+                        print(f"Gagal mengirim push notification: {e}")
             return Response({"status": "pager signals sent"}, status=status.HTTP_200_OK)
+        except Queue.DoesNotExist:
+            return Response({"error": "Queue not found"}, status=status.HTTP_404_NOT_FOUND)
 
         except Queue.DoesNotExist:
             return Response({"error": "Queue not found"}, status=status.HTTP_404_NOT_FOUND)
