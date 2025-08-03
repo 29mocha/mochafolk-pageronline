@@ -44,6 +44,29 @@ from asgiref.sync import async_to_sync
 from cryptography.hazmat.primitives import serialization
 import base64
 # --- Authentication Views ---
+# --- Helper Function for Sending Push Notifications ---
+def send_push_notification(shop_id, payload):
+    subscriptions = PushSubscription.objects.filter(coffee_shop_id=shop_id)
+    print(f"Mencoba mengirim push notification ke {subscriptions.count()} perangkat...")
+    for sub in subscriptions:
+        try:
+            endpoint_url = urlparse(sub.subscription_data['endpoint'])
+            vapid_claims = {
+                "sub": settings.WEBPUSH_CLAIMS['sub'],
+                "aud": f"{endpoint_url.scheme}://{endpoint_url.netloc}"
+            }
+            webpush(
+                subscription_info=sub.subscription_data,
+                data=json.dumps(payload),
+                vapid_private_key=settings.VAPID_PRIVATE_KEY,
+                vapid_claims=vapid_claims
+            )
+        except WebPushException as e:
+            if e.response and e.response.status_code == 410:
+                print(f"Langganan {sub.subscription_data.get('endpoint')} sudah tidak valid. Menghapus.")
+                sub.delete()
+            else:
+                print(f"Gagal mengirim push notification ke {sub.endpoint}: {e}")
 
 class MyTokenObtainPairView(generics.GenericAPIView):
     serializer_class = MyTokenObtainPairSerializer
@@ -204,60 +227,28 @@ class QueueListCreateView(generics.ListCreateAPIView):
 class QueueDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = QueueSerializer
     lookup_url_kwarg = 'queue_pk'
-
     def get_queryset(self):
-        shop_id = self.kwargs['shop_pk']
-        return Queue.objects.filter(coffee_shop_id=shop_id)
-
+        return Queue.objects.filter(coffee_shop_id=self.kwargs['shop_pk'])
     def get_permissions(self):
-        if self.request.method == 'GET':
-            return [permissions.AllowAny()]
+        if self.request.method == 'GET': return [permissions.AllowAny()]
         return [permissions.IsAuthenticated(), IsShopMember()]
-
     def perform_update(self, serializer):
         instance = serializer.save()
-        
         if instance.status == 'ready':
-            # Kirim notifikasi WebSocket (tidak berubah)
+            # Kirim notifikasi WebSocket
             channel_layer = get_channel_layer()
             group_name = f"queue_shop_{instance.coffee_shop.id}"
-            async_to_sync(channel_layer.group_send)(
-                group_name,
-                {
-                    "type": "queue.update",
-                    "message": { "id": instance.id, "queue_number": instance.queue_number, "status": instance.status }
-                }
-            )
-
+            async_to_sync(channel_layer.group_send)(group_name, {
+                "type": "queue.update",
+                "message": { "id": instance.id, "queue_number": instance.queue_number, "status": instance.status }
+            })
             # Kirim Push Notification
-            subscriptions = PushSubscription.objects.filter(coffee_shop_id=instance.coffee_shop.id)
-            payload = json.dumps({
+            payload = {
                 "title": f"Pesanan #{instance.queue_number} Siap!",
                 "body": f"Pesanan Anda di {instance.coffee_shop.name} sudah siap diambil.",
                 "url": f"/queue/{instance.coffee_shop.id}"
-            })
-            for sub in subscriptions:
-                try:
-                    # --- KUNCI PERBAIKAN: Rakit kembali data langganan ---
-                    subscription_info_dict = {
-                        "endpoint": sub.endpoint,
-                        "keys": { "p256dh": sub.p256dh, "auth": sub.auth }
-                    }
-                    vapid_claims = {
-                        "sub": settings.WEBPUSH_CLAIMS['sub'],
-                        "aud": f"{urlparse(sub.endpoint).scheme}://{urlparse(sub.endpoint).netloc}"
-                    }
-                    webpush(
-                        subscription_info=subscription_info_dict,
-                        data=payload,
-                        vapid_private_key=settings.VAPID_PRIVATE_KEY,
-                        vapid_claims=vapid_claims
-                    )
-                except WebPushException as e:
-                    if e.response and e.response.status_code == 410:
-                        sub.delete()
-                    else:
-                        print(f"Gagal mengirim push notification: {e}")
+            }
+            send_push_notification(instance.coffee_shop.id, payload)
 
 class ResetQueueView(APIView):
     permission_classes = [IsAuthenticated, IsShopMember]
@@ -270,44 +261,22 @@ class ResetQueueView(APIView):
         return Response({'message': f'{count} antrian telah direset.'}, status=status.HTTP_200_OK)
 
 class RingPagerView(APIView):
-    permission_classes = [IsAuthenticated, IsShopMember]
+    permission_classes = [permissions.IsAuthenticated, IsShopMember]
     def post(self, request, shop_pk=None, queue_pk=None):
         try:
             queue = Queue.objects.get(pk=queue_pk, coffee_shop_id=shop_pk)
+            # Kirim sinyal WebSocket
             channel_layer = get_channel_layer()
             group_name = f"queue_shop_{shop_pk}"
             async_to_sync(channel_layer.group_send)(group_name, { "type": "pager.ring", "message": { "id": queue.id } })
-            
-            subscriptions = PushSubscription.objects.filter(coffee_shop_id=shop_pk)
-            payload = json.dumps({
+            # Kirim Push Notification
+            payload = {
                 "title": f"Pager untuk Pesanan #{queue.queue_number}",
                 "body": f"Silakan ambil pesanan Anda di {queue.coffee_shop.name} sekarang.",
                 "url": f"/queue/{queue.coffee_shop.id}"
-            })
-            for sub in subscriptions:
-                try:
-                    # --- KUNCI PERBAIKAN: Rakit kembali data langganan ---
-                    subscription_info_dict = {
-                        "endpoint": sub.endpoint,
-                        "keys": { "p256dh": sub.p256dh, "auth": sub.auth }
-                    }
-                    vapid_claims = {
-                        "sub": settings.WEBPUSH_CLAIMS['sub'],
-                        "aud": f"{urlparse(sub.endpoint).scheme}://{urlparse(sub.endpoint).netloc}"
-                    }
-                    webpush(
-                        subscription_info=subscription_info_dict,
-                        data=payload,
-                        vapid_private_key=settings.VAPID_PRIVATE_KEY,
-                        vapid_claims=vapid_claims
-                    )
-                except WebPushException as e:
-                    if e.response and e.response.status_code == 410:
-                        sub.delete()
-                    else:
-                        print(f"Gagal mengirim push notification: {e}")
+            }
+            send_push_notification(shop_pk, payload)
             return Response({"status": "pager signals sent"}, status=status.HTTP_200_OK)
-
         except Queue.DoesNotExist:
             return Response({"error": "Queue not found"}, status=status.HTTP_404_NOT_FOUND)
 
